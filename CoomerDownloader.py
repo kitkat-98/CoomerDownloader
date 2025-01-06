@@ -105,7 +105,7 @@ class CoomerDownloader(object):
                                 file.write(chunk)
                                 pbar.update(len(chunk))  # 更新进度条
 
-                self.logger.info("\n下载完成!")
+                self.logger.info(f"{save_path}下载完成!")
                 return  # 下载成功后退出函数
 
             except requests.exceptions.RequestException as e:
@@ -137,16 +137,24 @@ class CoomerDownloader(object):
             is_image = post_combination.get('result_is_image')[i]
             # self.logger.info(f'video {i} is image: {is_image}')
             self.logger.info('\n' + '-*-'*50)
-            if not is_image: 
-                title = post_combination.get('results')[i].get('title') or post_combination.get('results')[i].get('substring')
-                self.logger.info(f'video title: {title}')
-                url = post_combination.get('result_attachments')[i][0].get('server') + '/data' + post_combination.get('result_attachments')[i][0].get('path')
-                self.logger.info(f'video url: {url}')
-                self.download_video_with_retry_and_resume(url, os.path.join(self.download_folder, f'{title}.mp4'))
+            self.logger.info(f'Post {i}')
+            if not is_image:
+                if post_combination.get('result_attachments')[i]:
+                    title = post_combination.get('results')[i].get('title') or post_combination.get('results')[i].get('substring')
+                    title = title.replace('\n', '').replace('.', '')
+                    url_list = [(i.get('server')+'/data'+i.get('path'), i.get('name')) for i in post_combination.get('result_attachments')[i]]
+                    for k,v in enumerate(url_list):
+                        title = title + '_' + v[1]
+                        self.logger.info(f'title: {title}')
+                        self.logger.info(f'video url: {v[0]}')
+                        self.download_video_with_retry_and_resume(v[0], os.path.join(self.download_folder, title))
+                else:
+                    self.logger.info(f'No attachment found, skip')
+                    self.logger.info(f'is_image: {is_image}, result_attachments: {post_combination.get("result_attachments")[i]}, results: {post_combination.get("results")[i]}')
             else:
-                self.logger.info(f'Image, skip {i}')
+                self.logger.info(f'Image file, skip')
                 skip_post += 1
-        self.logger.info('下载完成！！！')
+        self.logger.info('全部下载完成！！！')
 
 def parse_url():
 
