@@ -59,30 +59,44 @@ class CoomerDownloader(object):
         self.download_folder = os.path.join(base_folder, self.user_name)
         os.makedirs(self.download_folder, exist_ok=True)
 
-    def common_request(self, url, params=''):
-        try:
-            # 发送 GET 请求
-            response = self.session.get(url, params=params)
-            
-            self.logger.debug(f'url: {url}, params: {params}, response code: {response.status_code}')
-
-            if response.status_code != 200 or not response.content:
-                self.logger.error(f'url: {url}, params: {params}, request error, code: {response.status_code}, body: {response.text}')
-                return {}, False
-
+    def common_request(self, url, params='', max_retries=8, initial_delay=3):
+        delay = initial_delay
+        for i in range(max_retries):
             try:
-                return response.json(), True
-            except json.JSONDecodeError:
-                cleaned = response.text.strip()
-                try:
-                    return json.loads(cleaned), True
-                except json.JSONDecodeError:
-                    self.logger.error(f'JSON decode failed after cleaning: {cleaned[:200]}...')
+                response = self.session.get(url, params=params, timeout=30)
+                self.logger.debug(f'url: {url}, params: {params}, response code: {response.status_code}')
+
+                # Retryable errors (429 Too Many Requests, or 5xx server errors)
+                if response.status_code == 429 or 500 <= response.status_code < 600:
+                    wait_time = delay
+                    self.logger.warning(f"Received status {response.status_code} for {url}. Retrying in {wait_time}s... ({i + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    delay *= 2  # Exponential backoff
+                    continue # Try again in the next loop iteration
+
+                # Non-retryable errors or other non-200 responses
+                if response.status_code != 200 or not response.content:
+                    self.logger.error(f'url: {url}, params: {params}, request error, code: {response.status_code}, body: {response.text}')
                     return {}, False
 
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Request failed for url: {url}, params: {params}, error: {str(e)}")
-            return {}, False
+                # Successful request, try to parse JSON
+                try:
+                    return response.json(), True
+                except json.JSONDecodeError:
+                    cleaned = response.text.strip()
+                    try:
+                        return json.loads(cleaned), True
+                    except json.JSONDecodeError:
+                        self.logger.error(f'JSON decode failed for {url} after cleaning: {cleaned[:200]}...')
+                        return {}, False
+            
+            except requests.exceptions.RequestException as e:
+                self.logger.warning(f"Request for {url} failed ({e}). Retrying in {delay}s... ({i + 1}/{max_retries})")
+                time.sleep(delay)
+                delay *= 2
+        
+        self.logger.error(f"Request for {url} ultimately failed after {max_retries} retries.")
+        return {}, False
 
     def download_video_with_retry_and_resume(
         self, task, chunk_size=1 * 1024 * 1024, max_retries=5, retry_delay=2
@@ -157,7 +171,7 @@ class CoomerDownloader(object):
         # assert len(self.post_list) == post_count, "post list length is not equal to expected video count"
 
         self.logger.info('Concurrently fetching post details...')
-        with ThreadPoolExecutor(max_workers=self.workers) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             post_details_list = list(executor.map(self._fetch_post_details, self.post_list))
 
         self.logger.info('\nCollecting video tasks from fetched details...')
