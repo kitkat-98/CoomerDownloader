@@ -232,7 +232,7 @@ Example:
     args = parser.parse_args()
 
     # 使用正则表达式匹配 URL 中的 service 和 user_name
-    match = re.match(r'https://(coomer\.[a-z.]+)/([a-zA-Z0-9]+)/user/([a-zA-Z0-9]+)', args.url)
+    match = re.match(r'https://(coomer\.[a-z.]+)/([a-zA-Z0-9]+)/user/([a-zA-Z0-9_.-]+)', args.url)
     
     if not match:
         print(f"URL 格式不正确: {args.url}")
